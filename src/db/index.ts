@@ -1,4 +1,5 @@
 import { DATABASE_URL } from '../config/env.js';
 import { drizzle } from 'drizzle-orm/neon-http';
-
-const db = drizzle(DATABASE_URL!);
+import { sql } from 'drizzle-orm';
+export const db = drizzle(DATABASE_URL!);
+export {sql}
