@@ -42,7 +42,9 @@ export class InventoryService {
       }
 
       if (filters?.status) {
-        query = query.where(eq(medicationStock.status, filters.status));
+        query = query.where(
+          sql`${medicationStock.status} = ${filters.status}`
+        );
       }
 
       const [total] = await db.select({ count: count() }).from(medicationStock);
@@ -55,10 +57,10 @@ export class InventoryService {
       return {
         items,
         pagination: {
-          total: Number(total.count),
+          total: Number(total?.count || 0),
           page,
           limit,
-          pages: Math.ceil(Number(total.count) / limit),
+          pages: Math.ceil(Number(total?.count || 0) / limit),
         },
       };
     } catch (error) {
@@ -98,7 +100,7 @@ export class InventoryService {
           .update(medicationStock)
           .set({
             currentStock: newStock,
-            lastRestockDate: data.transactionType === 'RESTOCK' ? new Date() : medication.lastRestockDate,
+            lastRestockDate: data.transactionType === 'RESTOCK' ? sql`${new Date()}` : medication.lastRestockDate,
             updatedAt: new Date(),
           })
           .where(eq(medicationStock.medicationId, medicationId))
@@ -198,7 +200,7 @@ export class InventoryService {
         )
         .where(
           and(
-            eq(prescriptions.isDispensed, true),
+            sql`${prescriptions.isDispensed} = true`,
             gte(prescriptions.dispensedAt, startDate)
           )
         )
@@ -206,7 +208,7 @@ export class InventoryService {
         .orderBy(desc(sql`SUM((item->>'quantity')::int)`));
 
       // Calculate consumption trends
-      const totalConsumption = dispensedMeds.reduce((sum, item) => sum + Number(item.quantity), 0);
+      const totalConsumption = dispensedMeds.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
       const totalCost = dispensedMeds.reduce((sum, item) => sum + Number(item.totalCost || 0), 0);
 
       return {
@@ -214,8 +216,8 @@ export class InventoryService {
         period: { start: startDate, end: new Date() },
         summary: {
           totalItemsConsumed: totalConsumption,
-          totalCost,
-          averageDailyConsumption: totalConsumption / this.getDaysInTimeFrame(timeFrame),
+          totalCost: Number(totalCost || 0).toFixed(2),
+          averageDailyConsumption: Number(totalConsumption / this.getDaysInTimeFrame(timeFrame)).toFixed(2),
           topMedications: dispensedMeds.slice(0, 10),
         },
         byDepartment: await this.getConsumptionByDepartment(startDate),

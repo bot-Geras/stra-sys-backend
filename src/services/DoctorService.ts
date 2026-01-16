@@ -198,7 +198,7 @@ export class DoctorService {
       ]);
 
       logger.info(`Lab tests ordered for patient ${data.patientId}`, {
-        orderId: labOrder.orderId,
+        orderId: labOrder?.orderId,
         testsCount: data.tests.length,
         doctorId: data.doctorId,
       });
@@ -237,7 +237,7 @@ export class DoctorService {
       await this.redisService.del(`patient_details:${data.patientId}`);
 
       logger.info(`Diagnostic imaging ordered for patient ${data.patientId}`, {
-        imagingId: imagingOrder.imagingId,
+        imagingId: imagingOrder?.imagingId,
         modality: data.modality,
         doctorId: data.doctorId,
       });
@@ -294,7 +294,7 @@ export class DoctorService {
       ]);
 
       logger.info(`Prescription created for patient ${data.patientId}`, {
-        prescriptionId: prescription.prescriptionId,
+        prescriptionId: prescription?.prescriptionId,
         medicationsCount: data.medications.length,
         doctorId: data.doctorId,
       });
@@ -425,7 +425,7 @@ export class DoctorService {
       await this.redisService.del(`patient_details:${data.patientId}`);
 
       logger.info(`Vital signs recorded for patient ${data.patientId}`, {
-        vitalId: vitalRecord.vitalId,
+        vitalId: vitalRecord?.vitalId,
         isCritical,
         recordedBy: data.recordedBy,
       });

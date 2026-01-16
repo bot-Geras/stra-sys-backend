@@ -1,4 +1,5 @@
 import express from 'express';
+// @ts-ignore
 import {PORT} from './config/env.js';
 const app = express();
 

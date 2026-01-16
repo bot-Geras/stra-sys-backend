@@ -1,4 +1,4 @@
-import { db, sql } from '../db';
+import { db, sql, gte } from '../db';
 import { departmentQueues, departments, patients, users, triageSessions } from '../db/schema';
 import { eq, and, desc, asc, count, inArray } from 'drizzle-orm';
 import { AppError } from '../middleware/error';
@@ -162,12 +162,12 @@ export class QueueService {
         // Broadcast update
         this.socketService.broadcastToDepartment(departmentId, 'queue_update', {
           action: 'patient_called',
-          queueId: updated.queueId,
-          patientId: updated.patientId,
+          queueId: updated?.queueId,
+          patientId: updated?.patientId,
           straId: patient?.straId,
           patientName: `${patient?.firstName} ${patient?.lastName}`,
           doctorId,
-          calledAt: updated.calledAt,
+          calledAt: updated?.calledAt,
         });
 
         // Clear cache
@@ -301,7 +301,7 @@ export class QueueService {
             currentPos++;
           }
           positions.push({ 
-            queueId: waitingPatients[i].queueId, 
+            queueId: waitingPatients[i]?.queueId, 
             position: currentPos 
           });
           currentPos++;
@@ -319,7 +319,7 @@ export class QueueService {
               positionInQueue: pos.position,
               updatedAt: new Date(),
             })
-            .where(eq(departmentQueues.queueId, pos.queueId));
+            .where(eq(departmentQueues.queueId, pos.queueId!));
         }
 
         // Broadcast update
@@ -358,12 +358,12 @@ export class QueueService {
           avgActualWaitTime: sql<number>`AVG(
             EXTRACT(EPOCH FROM (${departmentQueues.completedAt} - ${departmentQueues.calledAt}))/60
           )`,
-          byUrgency: sql<json>`json_build_object(
+          byUrgency: sql`json_build_object(
             'RED', COUNT(CASE WHEN ${departmentQueues.urgencyLevel} = 'RED' THEN 1 END),
             'YELLOW', COUNT(CASE WHEN ${departmentQueues.urgencyLevel} = 'YELLOW' THEN 1 END),
             'GREEN', COUNT(CASE WHEN ${departmentQueues.urgencyLevel} = 'GREEN' THEN 1 END)
           )`,
-          byStatus: sql<json>`json_build_object(
+          byStatus: sql`json_build_object(
             'WAITING', COUNT(CASE WHEN ${departmentQueues.status} = 'WAITING' THEN 1 END),
             'IN_PROGRESS', COUNT(CASE WHEN ${departmentQueues.status} = 'IN_PROGRESS' THEN 1 END),
             'COMPLETED', COUNT(CASE WHEN ${departmentQueues.status} = 'COMPLETED' THEN 1 END)

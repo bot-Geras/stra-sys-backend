@@ -5,7 +5,7 @@ import { notifications, patients, users } from '../db/schema';
 import { and, count, eq, sql } from 'drizzle-orm';
 import { AppError } from '../middleware/error';
 import { logger } from '../config/logger';
-import { env } from '../config/env';
+import { env } from '../config/env.js';
 import { RedisService } from './RedisService';
 
 export class NotificationService {

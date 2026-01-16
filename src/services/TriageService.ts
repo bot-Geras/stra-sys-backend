@@ -8,7 +8,7 @@ import { AppError } from '../middleware/error';
 import type { NewPatient, NewTriageSession } from '../db/schema';
 
 export class TriageService {
-  private notificationService: NotificationService;
+  private notificationService: NotificationService; 
 
   constructor() {
     this.notificationService = new NotificationService();
@@ -37,7 +37,7 @@ export class TriageService {
         .returning();
 
       // Log activity
-      logger.info(`Patient registered: ${straId}`, { patientId: patient.patientId });
+      logger.info(`Patient registered: ${straId}`, { patientId: patient?.patientId });
 
       return patient;
     } catch (error) {
@@ -125,7 +125,7 @@ export class TriageService {
             patientId: triageData.patientId,
             nurseId: triageData.nurseId,
             ...triageData.vitals,
-            bmi,
+            ...(bmi !== undefined ? { bmi } : {}),
             symptoms: triageData.symptoms,
             chiefComplaint: triageData.chiefComplaint,
             triageScore: mewsScore,
@@ -142,7 +142,7 @@ export class TriageService {
           .values({
             departmentId: department.departmentId,
             patientId: triageData.patientId,
-            triageSessionId: triageSession.sessionId,
+            triageSessionId: triageSession?.sessionId,
             urgencyLevel,
             positionInQueue: queuePosition,
             expectedWaitTime: estimatedWait,
@@ -357,7 +357,7 @@ export class TriageService {
               positionInQueue: i + 1,
               updatedAt: new Date(),
             })
-            .where(eq(departmentQueues.queueId, waitingPatients[i].queueId));
+            .where(eq(departmentQueues.queueId, waitingPatients[i]?.queueId || ''));
         }
 
         logger.info(`Queue prioritized for department ${departmentId}`, {

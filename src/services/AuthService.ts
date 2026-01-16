@@ -5,7 +5,7 @@ import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../middleware/error';
 import { logger } from '../config/logger';
-import { env } from '../config/env';
+import { JWT_SECRET,JWT_EXPIRY,JWT_REFRESH_EXPIRY, JWT_REFRESH_SECRET  } from '../config/env.js';
 import { RedisService } from './RedisService';
 
 export class AuthService {
@@ -57,9 +57,11 @@ export class AuthService {
       const refreshToken = this.generateRefreshToken(user);
 
       // Remove password from response
-      const { password, ...userWithoutPassword } = user;
+      const userWithoutPassword = (({ password: _, ...rest }) => rest)(user as any);
 
-      logger.info(`User registered: ${user.email}`, { userId: user.userId, role: user.role });
+      if (user) {
+        logger.info(`User registered: ${user.email}`, { userId: user.userId, role: user.role });
+      }
 
       return {
         user: userWithoutPassword,
@@ -110,16 +112,24 @@ export class AuthService {
       const refreshToken = this.generateRefreshToken(user);
 
       // Remove password from response
-      const { password: _, ...userWithoutPassword } = user;
+      const userWithoutPassword = (({ password: _, ...rest }) => rest)(user as any);
 
       // Store refresh token in Redis
-      await this.redisService.set(
-        `refresh_token:${user.userId}`,
-        refreshToken,
-        7 * 24 * 60 * 60 // 7 days
-      );
+      if (user.userId) {
+        await this.redisService.set(
+          `refresh_token:${user.userId}`,
+          refreshToken,
+          7 * 24 * 60 * 60 // 7 days
+        );
+      } else {
+        logger.warn(`Refresh token not stored for user: ${user.email}`, { userId: 'userId not found' });
+      }
 
-      logger.info(`User logged in: ${user.email}`, { userId: user.userId, role: user.role });
+      if (user.userId) {
+        logger.info(`User logged in: ${user.email}`, { userId: user.userId, role: user.role });
+      } else {
+        logger.warn(`User logged in: ${user.email}`, { userId: 'userId not found' });
+      }
 
       return {
         user: userWithoutPassword,
@@ -136,8 +146,11 @@ export class AuthService {
   async refreshToken(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
     try {
       // Verify refresh token
-      const decoded = jwt.verify(refreshToken, env.JWT_REFRESH_SECRET) as any;
-      
+      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as any;
+      if (!decoded || !decoded.userId) {
+        throw new AppError('Invalid or expired refresh token', 400);
+      }
+
       // Check if token exists in Redis
       const storedToken = await this.redisService.get(`refresh_token:${decoded.userId}`);
       if (!storedToken || storedToken !== refreshToken) {
@@ -160,11 +173,13 @@ export class AuthService {
       const newRefreshToken = this.generateRefreshToken(user);
 
       // Update refresh token in Redis
-      await this.redisService.set(
-        `refresh_token:${user.userId}`,
-        newRefreshToken,
-        7 * 24 * 60 * 60
-      );
+      if (user.userId) {
+        await this.redisService.set(
+          `refresh_token:${user.userId}`,
+          newRefreshToken,
+          7 * 24 * 60 * 60
+        );
+      }
 
       return {
         token: newToken,
@@ -183,11 +198,15 @@ export class AuthService {
   async logout(userId: string): Promise<void> {
     try {
       // Remove refresh token from Redis
-      await this.redisService.del(`refresh_token:${userId}`);
-      
+      if (userId) {
+        await this.redisService.del(`refresh_token:${userId}`);
+      } else {
+        logger.warn(`Logout attempted with undefined userId`);
+      }
       logger.info(`User logged out: ${userId}`);
     } catch (error) {
       logger.error('Logout failed:', error);
+      if (error instanceof AppError) throw error;
       throw new AppError('Logout failed', 500);
     }
   }
@@ -226,8 +245,12 @@ export class AuthService {
         })
         .where(eq(users.userId, userId));
 
-      // Invalidate all refresh tokens
-      await this.redisService.del(`refresh_token:${userId}`);
+      // Add userId check before invalidating refresh tokens
+      if (userId) {
+        await this.redisService.del(`refresh_token:${userId}`);
+      } else {
+        logger.warn(`Password change attempted with undefined userId`);
+      }
 
       logger.info(`Password changed for user: ${userId}`);
     } catch (error) {
@@ -254,19 +277,25 @@ export class AuthService {
       // Generate reset token (valid for 1 hour)
       const resetToken = jwt.sign(
         { userId: user.userId, email: user.email },
-        env.JWT_SECRET + user.password, // Password in secret to invalidate when password changes
+        JWT_SECRET + user.password, // Password in secret to invalidate when password changes
         { expiresIn: '1h' }
       );
 
-      // Store token in Redis
-      await this.redisService.set(
-        `reset_token:${user.userId}`,
-        resetToken,
-        3600 // 1 hour
-      );
+      // Add userId check before storing reset token in Redis
+      if (user.userId) {
+        await this.redisService.set(
+          `reset_token:${user.userId}`,
+          resetToken,
+          3600 // 1 hour
+        );
+      }
 
       // In production, send email with reset link
-      logger.info(`Password reset requested for: ${email}`, { userId: user.userId });
+      if (user.userId) {
+        logger.info(`Password reset requested for: ${email}`, { userId: user.userId });
+      } else {
+        logger.warn(`Password reset requested for: ${email}`, { userId: 'userId not found' });
+      }
 
       return { resetToken: 'dummy_token' }; // In production, return actual token
     } catch (error) {
@@ -278,8 +307,16 @@ export class AuthService {
   async resetPassword(resetToken: string, newPassword: string): Promise<void> {
     try {
       // Verify token
-      const decoded = jwt.verify(resetToken, env.JWT_SECRET) as any;
-      
+      const decoded = jwt.verify(resetToken, JWT_SECRET) as any;
+      if (!decoded) {
+        throw new AppError('Invalid or expired reset token', 400);
+      }
+
+      // Check if userId exists in decoded token
+      if (!decoded.userId) {
+        throw new AppError('Invalid or expired reset token', 400);
+      }
+
       // Check if token exists in Redis
       const storedToken = await this.redisService.get(`reset_token:${decoded.userId}`);
       if (!storedToken || storedToken !== resetToken) {
@@ -287,14 +324,16 @@ export class AuthService {
       }
 
       // Get user
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.userId, decoded.userId))
-        .limit(1);
+      if (decoded.userId) {
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.userId, decoded.userId))
+          .limit(1);
 
-      if (!user) {
-        throw new AppError('User not found', 404);
+        if (!user) {
+          throw new AppError('User not found', 404);
+        }
       }
 
       // Hash new password
@@ -309,11 +348,19 @@ export class AuthService {
         })
         .where(eq(users.userId, decoded.userId));
 
-      // Remove reset token
-      await this.redisService.del(`reset_token:${decoded.userId}`);
+      // Add userId check before removing reset token
+      if (decoded.userId) {
+        await this.redisService.del(`reset_token:${decoded.userId}`);
+      } else {
+        logger.warn(`Password reset attempted with undefined userId`);
+      }
 
-      // Invalidate all refresh tokens
-      await this.redisService.del(`refresh_token:${decoded.userId}`);
+      // Add userId check before invalidating refresh tokens
+      if (decoded.userId) {
+        await this.redisService.del(`refresh_token:${decoded.userId}`);
+      } else {
+        logger.warn(`Password reset attempted with undefined userId`);
+      }
 
       logger.info(`Password reset for user: ${decoded.userId}`);
     } catch (error) {
@@ -344,7 +391,10 @@ export class AuthService {
         .where(eq(users.userId, userId))
         .returning();
 
-      const { password, ...userWithoutPassword } = updatedUser;
+      if (!updatedUser) {
+        throw new AppError('User not found', 404);
+      }
+      const { password: _, ...userWithoutPassword } = updatedUser;
 
       logger.info(`Profile updated for user: ${userId}`);
 
@@ -365,8 +415,8 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
       },
-      env.JWT_SECRET,
-      { expiresIn: env.JWT_EXPIRY }
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRY }
     );
   }
 
@@ -376,8 +426,8 @@ export class AuthService {
         userId: user.userId,
         email: user.email,
       },
-      env.JWT_REFRESH_SECRET,
-      { expiresIn: env.JWT_REFRESH_EXPIRY || '7d' }
+      JWT_REFRESH_SECRET,
+      { expiresIn: JWT_REFRESH_EXPIRY || '7d' }
     );
   }
 }
